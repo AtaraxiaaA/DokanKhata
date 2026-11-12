@@ -512,20 +512,28 @@ CREATE TABLE audit_log (
 -- =====================================================================
 
 -- v_sale_amounts: each sale with what has been paid and adjusted so far.
--- Correlated subqueries (one lookup per sale through the covering index)
--- avoid the row multiplication a double JOIN would cause.
+-- Payments and adjustments are summed per sale in two derived tables
+-- (one row per sale each), so joining both can't multiply rows.
+-- Why not scalar subqueries like (SELECT SUM(...) WHERE sale_id = ...)?
+-- MariaDB 10.4 raises #1111 "Invalid use of group function" when a query
+-- runs SUM()/COUNT() over view columns built from aggregate subqueries
+-- (for example SUM(balance) in sp_record_payment and the report views).
+-- With the totals in derived tables, the views' columns are plain values.
 CREATE VIEW v_sale_amounts AS
 SELECT cs.sale_id, cs.shop_customer_id, sc.shop_id, sc.customer_id,
        cs.staff_user_id, cs.sold_at, cs.due_date, cs.status, cs.total_amount,
-       COALESCE((SELECT SUM(pa.amount) FROM payment_allocations pa
-                  WHERE pa.sale_id = cs.sale_id), 0)                     AS paid_amount,
-       COALESCE((SELECT SUM(a.amount) FROM adjustments a
-                  WHERE a.sale_id = cs.sale_id), 0)                      AS adjusted_amount,
-       (SELECT MAX(p.paid_at) FROM payment_allocations pa
-          JOIN payments p ON p.payment_id = pa.payment_id
-         WHERE pa.sale_id = cs.sale_id)                                  AS last_paid_at
+       COALESCE(pd.paid_amount, 0)                                       AS paid_amount,
+       COALESCE(ad.adjusted_amount, 0)                                   AS adjusted_amount,
+       pd.last_paid_at                                                   AS last_paid_at
 FROM credit_sales cs
-JOIN shop_customers sc ON sc.shop_customer_id = cs.shop_customer_id;
+JOIN shop_customers sc ON sc.shop_customer_id = cs.shop_customer_id
+LEFT JOIN (SELECT pa.sale_id, SUM(pa.amount) AS paid_amount, MAX(p.paid_at) AS last_paid_at
+             FROM payment_allocations pa
+             JOIN payments p ON p.payment_id = pa.payment_id
+            GROUP BY pa.sale_id) AS pd ON pd.sale_id = cs.sale_id
+LEFT JOIN (SELECT a.sale_id, SUM(a.amount) AS adjusted_amount
+             FROM adjustments a
+            GROUP BY a.sale_id) AS ad ON ad.sale_id = cs.sale_id;
 
 -- v_sale_balance: the balance of every sale and how many days it is overdue.
 CREATE VIEW v_sale_balance AS
