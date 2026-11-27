@@ -4,12 +4,14 @@
 
 DokanKhata digitizes the paper *baki khata* (credit notebook) kept by small shops across Bangladesh. Shopkeepers record credit sales, take payments in cash or by mobile banking, send due reminders and check a **cross-shop trust score** before giving credit to a customer.
 
-This repository currently contains the **database layer**: a MariaDB/MySQL schema that enforces the business rules itself, through constraints, triggers, stored procedures and scheduled events. Any frontend or API built on it gets the same guarantees.
+The business rules live **inside the database** (constraints, triggers, stored procedures and scheduled events), so every client gets the same guarantees. On top of it sits a TypeScript API (Node + Hono) and a React web app.
 
 ![MariaDB](https://img.shields.io/badge/MariaDB-10.4%2B-003545?logo=mariadb&logoColor=white)
 ![XAMPP](https://img.shields.io/badge/XAMPP-ready-FB7A24?logo=xampp&logoColor=white)
 ![Engine](https://img.shields.io/badge/engine-InnoDB-blue)
 ![Charset](https://img.shields.io/badge/charset-utf8mb4-green)
+![TypeScript](https://img.shields.io/badge/TypeScript-end--to--end-3178C6?logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)
 
 ---
 
@@ -17,7 +19,8 @@ This repository currently contains the **database layer**: a MariaDB/MySQL schem
 
 - [Highlights](#highlights)
 - [Repository layout](#repository-layout)
-- [Quick start](#quick-start)
+- [Run the app](#run-the-app)
+- [Quick start (database only)](#quick-start)
 - [Data model](#data-model)
 - [Tables](#tables)
 - [Views](#views)
@@ -51,21 +54,54 @@ This repository currently contains the **database layer**: a MariaDB/MySQL schem
 ## Repository layout
 
 ```
+apps/
+├── api/                      # Node 22 + Hono REST API (raw SQL via mysql2)
+└── web/                      # React 19 + Vite + Tailwind v4 + shadcn/ui
+packages/
+└── shared/                   # enums, zod schemas, types shared by api + web
 db/
 └── database/
     ├── schema.sql            # tables, views, procedures, triggers, events
     ├── seed.sql              # ~5 months of realistic sample data
-    ├── dokankhata_full.sql   # schema.sql + seed.sql in one file
-    └── test_schema.sql       # smoke test for every rule and procedure
+    ├── dokankhata_full.sql   # GENERATED: schema.sql + seed.sql (npm run db:build)
+    ├── queries.sql           # the 17 critical queries
+    ├── test_schema.sql       # smoke test for every rule and procedure
+    └── rollback.sql          # drops the database
+scripts/                      # db:build, db:reset, db:check (cross-platform Node)
+docs/                         # architecture, API contract, assignments, design system
 ```
 
 | At a glance | Count |
 |---|---|
-| Tables | **21** (in 5 modules) |
+| Tables | **23** (in 5 modules) |
 | Views | **6** |
 | Stored procedures | **7** |
 | Triggers | **13** |
 | Scheduled events | **5** |
+
+---
+
+## Run the app
+
+Requires **Node.js 22+** and **XAMPP** with MySQL running.
+
+```bash
+npm install
+cp .env.example .env      # set DB_PASSWORD if your MySQL root has one
+npm run db:reset          # imports db/database/dokankhata_full.sql
+npm run db:check          # verifies tables, procedures, events, scheduler
+npm run dev               # API → http://localhost:3001  ·  Web → http://localhost:5173
+```
+
+| Script | What it does |
+|---|---|
+| `npm run dev` | API + web with hot reload |
+| `npm run db:build` | Rebuilds `dokankhata_full.sql` after editing `schema.sql` or `seed.sql` |
+| `npm run db:reset` | Drops and re-imports the database (finds XAMPP's `mysql` on macOS, Windows and Linux) |
+| `npm run db:check` | Health check of the imported database |
+| `npm run typecheck` / `npm run lint` | Run before every pull request |
+
+Team docs: [Architecture](docs/ARCHITECTURE.md) · [API contract](docs/API.md) · [Assignments](docs/ASSIGNMENTS.md) · [Contributing](docs/CONTRIBUTING.md) · [Design system](docs/DESIGN.md)
 
 ---
 
@@ -181,6 +217,7 @@ erDiagram
 | `users` | One login table for every role: `owner`, `staff`, `customer`, `admin`. Passwords are stored only as bcrypt hashes. |
 | `shops` | Registered shops. A shop starts as `pending` and an admin must verify it before it goes live. Holds the default credit limit (Tk 5,000) and due days (15). |
 | `shop_staff` | Which users work at which shop (`manager` / `cashier`), and whether each one may give credit. |
+| `user_sessions` | API login sessions. Only a SHA-256 hash of the cookie token is stored; deleting a row logs that device out. |
 
 ### Module B: Customers
 
@@ -218,6 +255,7 @@ erDiagram
 | `reminders` | Queue of SMS/app reminders (`before_due`, `on_due`, `overdue`, `promise`). A unique key on (sale, type) prevents duplicates. |
 | `monthly_statements` | A frozen month-end summary per account. A CHECK guarantees `closing = opening + credit − paid − adjustments`. |
 | `audit_log` | Who changed what and when, stored as JSON. It has no foreign keys, so log entries outlive the rows they describe. |
+| `festivals` | Reference dates for Eid, Durga Puja and Pohela Boishakh, used by the festival credit-spike report. |
 
 ---
 
@@ -225,7 +263,7 @@ erDiagram
 
 | View | What it returns |
 |---|---|
-| `v_sale_amounts` | Every sale with its paid amount, adjusted amount and last payment time. Uses correlated subqueries to avoid row multiplication. |
+| `v_sale_amounts` | Every sale with its paid amount, adjusted amount and last payment time. Payments and adjustments are summed in separate derived tables, so joining both can't multiply rows. |
 | `v_sale_balance` | `v_sale_amounts` plus `balance` and `days_overdue`. Most other views and procedures build on this one. |
 | `v_customer_balance` | One row per account: total credit, paid, adjusted, balance, **available credit**, unpaid sales, oldest unpaid due date and max days overdue. |
 | `v_shop_outstanding` | Per shop: how many customers owe money, the total outstanding and how much of it is overdue. |
