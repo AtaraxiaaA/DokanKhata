@@ -1,98 +1,152 @@
-# API contract
+# API reference
 
-Base URL: `/api`. JSON in, JSON out. Errors use the shape in [ARCHITECTURE.md](ARCHITECTURE.md#error-contract).
-✅ = built · ⬜ = stub returning 501 (owner shown). Source of truth: `apps/api/src/routes/*.ts`.
+Every endpoint is built and tested (`npm run test:api` checks all of them as every role).
+Base URL is `/api`. Request and response bodies are JSON. Errors always look like this:
 
-Use the typed client in the web app, never raw `fetch`:
-
-```ts
-const rows = await call(api.shops[':shopId'].customers.$get({ param: { shopId: '1' }, query: { owing: '1' } }));
+```json
+{ "error": { "code": "BUSINESS_RULE", "message": "Credit limit exceeded: owes Tk 1973.00, ..." } }
 ```
 
-## Public: `auth.ts`, `meta.ts` (Member 1)
+| Status | When |
+|---|---|
+| 400 `VALIDATION` | bad input (`details` says which field) |
+| 401 | not logged in |
+| 403 | wrong role, not your shop, no credit permission, or the shop isn't verified yet |
+| 404 | not found, or it belongs to another shop/customer |
+| 409 `DUPLICATE` | same phone, same TrxID, product already listed, second open dispute… |
+| 422 `BUSINESS_RULE` | the database said no (limit, stock, blocked, overpaying…). Show the message as it is. |
 
-| | Method & path | Body / query | Returns |
+## How to call it from a page
+
+Don't use `fetch`. Use the typed client, so your page stops compiling if an endpoint changes:
+
+```ts
+import { api, call } from '@/api/client';
+
+const rows = await call(api.shops[':shopId'].customers.$get({ param: { shopId: '1' }, query: { owing: '1' } }));
+await call(api.shops[':shopId'].payments.$post({ param: { shopId: '1' }, json: { shopCustomerId: 5, amount: 500, method: 'cash' } }));
+```
+
+- Query values are always strings (`limit: '20'`).
+- Wrap calls in react-query hooks in `apps/web/src/api/queries/<module>.ts`. `customers.ts`, `sales.ts` and `admin.ts` are there to copy.
+- Field names are camelCase versions of the SQL columns. Money is a number, dates are strings (`'2026-11-27'` / `'2026-11-27 14:05:00'`); format them with `<Money>` and `formatDate()`.
+- Body shapes (zod schemas) are in `packages/shared/src/schemas/`, so you can reuse them in forms with `zodResolver`.
+
+Who can call what: `S` = owner or any staff of that shop, `M` = owner or manager only, `C` = owner or staff with "can give credit", `A` = shop must be active (verified).
+
+---
+
+## Public
+
+| Method | Path | Body / query | Returns |
 |---|---|---|---|
-| ✅ | `POST /auth/login` | `{ identifier, password }` | `SessionUser` + sets cookie |
-| ✅ | `POST /auth/logout` | | `{ ok }` |
-| ✅ | `GET /auth/me` | | `SessionUser` or 401 |
-| ⬜ | `POST /auth/register-shop` | owner + shop fields | `SessionUser` (shop `pending`) |
-| ⬜ | `POST /auth/claim` | `{ phone, otp, password }` | `SessionUser` |
-| ✅ | `GET /meta/health` | | DB name, event scheduler, server time |
-| ✅ | `GET /meta/areas` | | areas for selects |
-| ✅ | `GET /meta/categories` | | categories |
+| POST | `/auth/login` | `{ identifier, password }` (phone or email) | `SessionUser`, sets the cookie |
+| POST | `/auth/logout` | | `{ ok }` |
+| GET | `/auth/me` | | `SessionUser` or 401 |
+| POST | `/auth/register-shop` | `{ owner: { fullName, phone, email?, password }, shop: { name, shopType, tradeLicenceNo?, areaId, address, phone? } }` | `SessionUser` (shop is `pending`), logged in |
+| POST | `/auth/claim/start` | `{ phone }` | `{ firstName, shops[], demoCode }`. 404 if no shop has them, 409 if already claimed |
+| POST | `/auth/claim` | `{ phone, otp, password }` | `SessionUser` (customer), logged in. The demo OTP is `123456` |
+| GET | `/meta/health` | | DB name, event scheduler on/off |
+| GET | `/meta/areas` | | areas for dropdowns |
+| GET | `/meta/categories` | | product categories |
 
-## Shop: every path starts `/shops/:shopId` (owner or staff of that shop)
+## Shop: every path starts with `/shops/:shopId`
 
-### Customers: `customers.ts` (Member 3)
-| | | | |
+### Customers (`customers.ts`)
+| | Method | Path | Body / query | Returns |
+|---|---|---|---|---|
+| S | GET | `/customers` | `?q&status&owing=1&limit&offset` | `{ rows: CustomerBalanceRow[], total }` |
+| S | GET | `/customers/lookup` | `?phone=` | `CustomerLookup`: account here, trust, debt at other shops (404 if unknown) |
+| S | GET | `/customers/guarantor-risk` | | **Q12** guarantors whose accounts are overdue |
+| S | POST | `/customers` | `{ phone, fullName, nid?, areaId?, address?, creditLimit?, dueDays? }` | `{ shopCustomerId, customerId, existingPerson }`. Reuses the person if the phone is already on DokanKhata |
+| S | GET | `/customers/:shopCustomerId` | | `{ account, guarantors, guarantees, promises }` |
+| M | PATCH | `/customers/:shopCustomerId` | `{ creditLimit?, dueDays?, status?, blockedReason? }` | `{ ok }`. Logged in the audit log |
+| M | POST | `/customers/:shopCustomerId/guarantors` | `{ guarantorCustomerId, guaranteeLimit }` | `{ ok }` |
+
+### Products (`products.ts`)
+| | Method | Path | Body / query | Returns |
+|---|---|---|---|---|
+| S | GET | `/products` | `?q` | active `ShopProductRow[]` (for the sale cart) |
+| S | GET | `/products/all` | | every item incl. inactive, with `lowStock` |
+| S | GET | `/products/catalog` | `?q&categoryId` | catalog products this shop doesn't sell yet |
+| M | POST | `/products` | `{ productId, sellPrice, stockQty?, reorderLevel?, trackStock? }` | `{ shopProductId }` |
+| M | PATCH | `/products/:shopProductId` | `{ sellPrice?, stockQty?, reorderLevel?, trackStock?, isActive? }` | `{ ok }` |
+
+### Sales (`sales.ts`)
+| | Method | Path | Body / query | Returns |
+|---|---|---|---|---|
+| C A | POST | `/sales` | `{ shopCustomerId, items: [{ shopProductId, qty }], note? }` | `{ saleId, totalAmount, dueDate, soldAt }` |
+| S | GET | `/sales` | `?status&shopCustomerId&staffUserId&unpaid=1&from&to&limit&offset` | `{ rows, total, sumTotal, sumOutstanding }` |
+| S | GET | `/sales/:saleId` | | `{ sale, items, allocations, adjustments, disputes }` |
+| M | PATCH | `/sales/:saleId/due-date` | `{ dueDate }` (later only) | `{ ok }` |
+
+### Payments (`payments.ts`)
+| | Method | Path | Body / query | Returns |
+|---|---|---|---|---|
+| S A | POST | `/payments` | `{ shopCustomerId, amount, method, trxRef? }` (TrxID needed for bkash/nagad/rocket) | `{ payment, allocations }` |
+| S | GET | `/payments/preview` | `?shopCustomerId&amount` | `{ payable, tooMuch, allocations }`. Which sales it would clear, nothing saved |
+| S | GET | `/payments` | `?method&shopCustomerId&from&to&limit&offset` | `{ rows, total, sumAmount }` |
+| S | GET | `/payments/:paymentId` | | `{ payment, allocations }` (**Q6**) |
+
+### Ledger, adjustments, disputes, statements
+| | Method | Path | Body / query | Returns |
+|---|---|---|---|---|
+| S | GET | `/ledger/:shopCustomerId` | | `{ account, lines }` with `runningBalance` (**Q7**) |
+| S | GET | `/adjustments` | `?type&from&to&limit&offset` | `{ rows, total, sumAmount }` |
+| M | POST | `/adjustments` | `{ saleId, type, amount, reason }` | `{ adjustmentId }` |
+| S | GET | `/disputes` | `?status` | disputes, open first |
+| S | POST | `/disputes` | `{ saleId, reason }` (recorded at the counter) | `{ disputeId }` |
+| M | PATCH | `/disputes/:disputeId` | `{ status: accepted\|rejected, resolution }` | `{ ok, saleId }` |
+| S | GET | `/statements/months` | | months that have statements |
+| S | GET | `/statements` | `?month=YYYY-MM-01` (default last month) | statement rows |
+| M | POST | `/statements/generate` | `{ month? }` | `{ ok }` |
+
+### Follow-up, staff, settings
+| | Method | Path | Body / query | Returns |
+|---|---|---|---|---|
+| S | GET | `/promises` | `?status` | promises, pending first |
+| S | POST | `/promises` | `{ shopCustomerId, promisedAmount, promisedDate }` | `{ promiseId }` |
+| S | GET | `/promises/repeat-breakers` | | **Q11** |
+| S | GET | `/reminders` | `?status&type&date` | reminder queue |
+| S | PATCH | `/reminders/:reminderId` | `{ status: sent\|failed\|cancelled }` | `{ ok }` |
+| S | POST | `/reminders/mark-all-sent` | | `{ updated }` |
+| S | GET | `/staff` | | staff, current first |
+| M | POST | `/staff` | `{ phone, fullName, password?, staffRole?, canGiveCredit? }` (password only for a new login) | `{ userId }` |
+| M | PATCH | `/staff/:userId` | `{ staffRole?, canGiveCredit?, left? }` | `{ ok }` |
+| S | GET | `/settings` | | shop profile |
+| M | PATCH | `/settings` | `{ name?, shopType?, tradeLicenceNo?, areaId?, address?, phone?, defaultCreditLimit?, defaultDueDays? }` | `{ ok }` |
+| S | GET | `/settings/dashboard` | | `{ kpis, aging, overLimit (Q2), vanished (Q4), dso (Q16), lowStock, dueSoon }` |
+
+### Reports (`reports.ts`)
+| | Method | Path | Query | Returns |
+|---|---|---|---|---|
+| S | GET | `/reports/aging` | | `{ totals, rows }` (**Q1**) |
+| S | GET | `/reports/trend` | `?months=6` | per month: credit, collected, % change (**Q8**) |
+| S | GET | `/reports/festival` | | credit before each festival vs normal (**Q9**) |
+| S | GET | `/reports/top-debtors` | `?limit=10` | ranked (**Q10**) |
+| M | GET | `/reports/staff` | `?from&to` | per staff + `redFlag` (**Q13**) |
+| S | GET | `/reports/products` | `?from&to&limit` | `{ products, categories }` (**Q15**) |
+
+## Customer portal: `/portal/*`, customer logins only
+
+| Method | Path | Body | Returns |
 |---|---|---|---|
-| ✅ | `GET /customers` | `?q&status&owing=1&limit&offset` | `{ rows: CustomerBalanceRow[], total }` |
-| ✅ | `GET /customers/lookup` | `?phone=01XXXXXXXXX` | `CustomerLookup` (404 if unknown) |
-| ⬜ | `POST /customers` | `{ phone, fullName, nid?, areaId?, creditLimit?, dueDays? }` | account |
-| ⬜ | `GET /customers/:shopCustomerId` | | account detail + guarantors |
-| ⬜ | `PATCH /customers/:shopCustomerId` | `{ creditLimit?, dueDays?, status?, blockedReason? }` (manager) | account |
-| ⬜ | `POST /customers/:shopCustomerId/guarantors` | `{ guarantorCustomerId, guaranteeLimit }` | |
+| GET | `/portal/balances` | | `{ totalOwed, shopsOwed, accounts[] }` |
+| GET | `/portal/statement/:shopCustomerId` | | `{ account, lines }` (same as the ledger, own accounts only) |
+| GET | `/portal/trust` | | `{ score, byShop (Q5), perfectPayer (Q17), firstSale }` |
+| GET | `/portal/sales/:shopCustomerId` | | recent sales with `hasOpenDispute` (for the dispute form) |
+| POST | `/portal/disputes` | `{ saleId, reason }` | `{ disputeId }` |
+| POST | `/portal/pay` | `{ shopCustomerId, amount, method: bkash\|nagad\|rocket }` | `{ paymentId, trxRef, allocations }`. **Prototype**: no real gateway, it makes up a TrxID |
 
-### Products: `products.ts` (Member 3)
-| | | | |
+## Admin: `/admin/*`, admin logins only
+
+| Method | Path | Body / query | Returns |
 |---|---|---|---|
-| ✅ | `GET /products` | `?q` | `ShopProductRow[]` |
-| ⬜ | `GET /products/catalog` | `?q` | catalog items not yet sold here |
-| ⬜ | `POST /products` | `{ productId, sellPrice, stockQty, reorderLevel }` (manager) | |
-| ⬜ | `PATCH /products/:shopProductId` | price / stock / reorder / active (manager) | |
-
-### Sales, payments, ledger: `sales.ts`, `payments.ts`, `ledger.ts`, `adjustments.ts`, `disputes.ts`, `statements.ts` (Member 2)
-| | | | |
-|---|---|---|---|
-| ✅ | `POST /sales` | `{ shopCustomerId, items: [{ shopProductId, qty }], note? }` | `{ saleId, totalAmount, dueDate, soldAt }` → `sp_record_credit_sale` |
-| ⬜ | `GET /sales` | `?status&from&to&shopCustomerId` | sales list |
-| ⬜ | `GET /sales/:saleId` | | sale + items + allocations + adjustments |
-| ⬜ | `PATCH /sales/:saleId/due-date` | `{ dueDate }` (manager, extend only) | |
-| ⬜ | `POST /payments` | `{ shopCustomerId, amount, method, trxRef? }` | payment + allocations → `sp_record_payment` |
-| ⬜ | `GET /payments` | `?from&to&method&shopCustomerId` | |
-| ⬜ | `GET /payments/preview` | `?shopCustomerId&amount` | FIFO preview (no write) |
-| ⬜ | `GET /payments/:paymentId` | | allocations (Q6) |
-| ⬜ | `GET /ledger/:shopCustomerId` | | running statement (Q7) |
-| ⬜ | `GET /adjustments` · `POST /adjustments` | `{ saleId, type, amount, reason }` (manager) | → `sp_add_adjustment` |
-| ⬜ | `GET /disputes` · `PATCH /disputes/:disputeId` | `{ status, resolution }` (manager) | |
-| ⬜ | `GET /statements` · `POST /statements/generate` | `?month=YYYY-MM-01` | → `sp_generate_statements` |
-
-### Follow-up, staff, settings: `promises.ts`, `reminders.ts`, `staff.ts`, `settings.ts` (Member 3)
-| | | | |
-|---|---|---|---|
-| ⬜ | `GET /promises` · `POST /promises` | `{ shopCustomerId, promisedAmount, promisedDate }` | |
-| ⬜ | `GET /promises/repeat-breakers` | | Q11 |
-| ⬜ | `GET /reminders` · `PATCH /reminders/:reminderId` | `{ status }` | |
-| ⬜ | `GET /staff` · `POST /staff` · `PATCH /staff/:userId` | (manager) | |
-| ⬜ | `GET /settings` · `PATCH /settings` | (manager for PATCH) | |
-| ⬜ | `GET /settings/dashboard` | | KPIs, Q2, Q4, Q16 |
-
-### Reports: `reports.ts` (Member 4)
-| | | |
-|---|---|---|
-| ⬜ | `GET /reports/aging` | Q1 |
-| ⬜ | `GET /reports/trend` | Q8 |
-| ⬜ | `GET /reports/festival` | Q9 |
-| ⬜ | `GET /reports/top-debtors` | Q10 |
-| ⬜ | `GET /reports/staff` | Q13 (manager) |
-| ⬜ | `GET /reports/products` | Q15 |
-
-## Customer portal: `/portal/*`, role `customer` (Member 4), `portal.ts`
-| | | |
-|---|---|---|
-| ⬜ | `GET /portal/balances` | my accounts at every shop |
-| ⬜ | `GET /portal/statement/:shopCustomerId` | must be MY account (check `customer_id = user.customerId`) |
-| ⬜ | `GET /portal/trust` | Q5, Q17 |
-| ⬜ | `POST /portal/disputes` | `{ saleId, reason }` (my sale only) |
-| ⬜ | `POST /portal/pay` | prototype: `{ shopCustomerId, amount, method }`; server makes a fake TrxID and calls `sp_record_payment` with `received_by` = shop owner |
-
-## Admin: `/admin/*`, role `admin` (Member 1), `admin.ts`
-| | | |
-|---|---|---|
-| ⬜ | `GET /admin/overview` | platform KPIs |
-| ⬜ | `GET /admin/shops?status=pending` · `PATCH /admin/shops/:shopId/verify` | |
-| ⬜ | `GET /admin/users` · `PATCH /admin/users/:userId` | suspend also deletes their sessions |
-| ⬜ | `GET /admin/audit-log` | |
-| ⬜ | `GET /admin/reports/area-risk` | Q14 |
-| ⬜ | `GET /admin/reports/exposure` | Q3 |
+| GET | `/admin/overview` | | `{ counts, money, recentShops, shopsByStatus }` |
+| GET | `/admin/shops` | `?status&q` | shops with owner, area, customers, money owed |
+| PATCH | `/admin/shops/:shopId/verify` | `{ action: approve\|suspend\|reactivate }` | `{ ok, status }` |
+| GET | `/admin/users` | `?role&status&q&limit&offset` | `{ rows, total }` |
+| PATCH | `/admin/users/:userId` | `{ status: active\|suspended }` | `{ ok }`. Suspending logs them out everywhere |
+| GET | `/admin/audit-log` | `?table&from&to&limit&offset` | `{ rows, total }` with old/new values parsed |
+| GET | `/admin/reports/area-risk` | `?level=area\|thana\|district` | **Q14** |
+| GET | `/admin/reports/exposure` | `?minShops=3` | **Q3** |

@@ -99,6 +99,7 @@ npm run dev               # API → http://localhost:3001  ·  Web → http://lo
 | `npm run db:build` | Rebuilds `dokankhata_full.sql` after editing `schema.sql` or `seed.sql` |
 | `npm run db:reset` | Drops and re-imports the database (finds XAMPP's `mysql` on macOS, Windows and Linux) |
 | `npm run db:check` | Health check of the imported database |
+| `npm run test:api` | Calls every API endpoint as every role (needs `npm run dev`; writes test data, so `db:reset` after) |
 | `npm run typecheck` / `npm run lint` | Run before every pull request |
 
 Team docs: [Architecture](docs/ARCHITECTURE.md) · [API contract](docs/API.md) · [Assignments](docs/ASSIGNMENTS.md) · [Contributing](docs/CONTRIBUTING.md) · [Design system](docs/DESIGN.md)

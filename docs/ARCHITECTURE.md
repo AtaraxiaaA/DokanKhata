@@ -21,7 +21,7 @@ Shared contracts (enums, zod schemas, row types, money/date helpers) live in `pa
 - **Rules live in the database.** Credit limits, stock, sale status, the append-only ledger and audit logging are enforced by triggers and procedures. The API can't bypass them, and neither can phpMyAdmin.
 - **No ORM.** This is a database course and the SQL is what's graded. ORMs also handle `CALL` with OUT params, `SIGNAL` errors and triggers badly.
 - **End-to-end types.** The web app imports the API's type (`AppType`). If someone renames a field in a route, the pages that use it stop compiling, instead of breaking during the demo.
-- **Vertical slices.** Each member owns SQL + API + page for a module, so nobody is blocked waiting for someone else's API.
+- **One API, many pages.** The API and all the SQL are finished and tested, so the pages can be built in parallel without waiting on each other.
 
 ## Request lifecycle (example: record a credit sale)
 
@@ -47,7 +47,6 @@ Every non-2xx response has this shape:
 | 404 | `NOT_FOUND` | Record or endpoint missing |
 | 409 | `DUPLICATE` | Unique key, e.g. the same bKash TrxID twice |
 | 422 | `BUSINESS_RULE` / `CHECK_FAILED` | A database rule said no |
-| 501 | `NOT_IMPLEMENTED` | Stub, not built yet |
 
 ## Auth
 
@@ -61,3 +60,5 @@ See the README for the full list. Added in the skeleton:
 
 - `user_sessions`: API login sessions
 - `festivals`: Eid/Puja/Pohela Boishakh dates for the festival-spike report (Q9)
+
+Shared bits of the API worth knowing: `lib/ownership.ts` (checks a record belongs to the shop in the URL), `lib/statement.ts` (Q7, used by the shop ledger and the portal), `withTx()` in `db.ts` (for requests that write to several tables).

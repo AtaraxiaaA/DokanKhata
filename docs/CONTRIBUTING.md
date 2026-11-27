@@ -26,6 +26,7 @@ npm run db:reset                 # if anything in db/ changed
 git checkout -b feat/m3-add-customer
 # ...work...
 npm run typecheck && npm run lint
+npm run test:api && npm run db:reset   # if you touched the API
 git commit -m "feat(customers): add customer form with phone lookup"
 git push -u origin feat/m3-add-customer   # then open a PR to main
 ```
