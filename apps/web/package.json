@@ -1,0 +1,47 @@
+{
+  "name": "@dokankhata/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/node": "^22.20.7",
+    "@types/react": "^19.3.3",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^5.9.3",
+    "vite": "^8.4.0"
+  },
+  "dependencies": {
+    "@dokankhata/api": "^0.1.0",
+    "@dokankhata/shared": "^0.1.0",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource/hind-siliguri": "^5.3.0",
+    "@hookform/resolvers": "^7.0.9",
+    "@tanstack/react-query": "^5.108.4",
+    "@tanstack/react-table": "^8.21.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "cn": "^0.5.2",
+    "hono": "^4.13.23",
+    "lucide-react": "^1.82.0",
+    "radix-ui": "^1.8.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-hook-form": "^7.92.0",
+    "react-router": "^8.5.3",
+    "recharts": "^3.11.2",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.7.1",
+    "tw-animate-css": "^1.4.0",
+    "zod": "^4.6.7"
+  }
+}

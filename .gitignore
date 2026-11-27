@@ -1,1 +1,25 @@
+# --- Private planning / AI context (never pushed) ---
+*.md
+!README.md
+!docs/
+!docs/**/*.md
+graphify-out/
+
+# --- Dependencies & builds ---
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# --- Environment ---
+.env
+.env.*
+!.env.example
+
+# --- OS / editor ---
 .DS_Store
+Thumbs.db
+.idea/
+*.log
+npm-debug.log*

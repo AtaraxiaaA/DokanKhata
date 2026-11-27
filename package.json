@@ -1,0 +1,37 @@
+{
+  "name": "dokankhata",
+  "private": true,
+  "version": "0.1.0",
+  "description": "DokanKhata: digital baki khata for Bangladeshi small retailers (CSE311L)",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm:dev -w @dokankhata/api\" \"npm:dev -w @dokankhata/web\"",
+    "dev:api": "npm run dev -w @dokankhata/api",
+    "dev:web": "npm run dev -w @dokankhata/web",
+    "build": "npm run build -w @dokankhata/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "db:build": "node scripts/build-full.mjs",
+    "db:reset": "node scripts/db-reset.mjs",
+    "db:check": "node scripts/db-check.mjs",
+    "test:api": "node scripts/api-smoke.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^10.0.7",
+    "eslint": "^10.15.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.8",
+    "globals": "^17.14.0",
+    "prettier": "^3.10.1",
+    "typescript-eslint": "^8.74.0"
+  }
+}

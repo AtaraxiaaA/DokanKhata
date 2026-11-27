@@ -10,7 +10,7 @@
 --  Undo   : rollback.sql
 --
 --  Contents
---    Part 1  21 tables in 5 modules (A-E)
+--    Part 1  23 tables in 5 modules (A-E)
 --    Part 2  6 views
 --    Part 3  7 stored procedures (before the triggers that call them)
 --    Part 4  13 triggers
@@ -134,6 +134,26 @@ CREATE TABLE shop_staff (
   CONSTRAINT fk_shop_staff_shop FOREIGN KEY (shop_id) REFERENCES shops (shop_id) ON DELETE CASCADE,
   CONSTRAINT fk_shop_staff_user FOREIGN KEY (user_id) REFERENCES users (user_id),
   CONSTRAINT ck_shop_staff_dates CHECK (left_on IS NULL OR left_on >= joined_on)
+) ENGINE=InnoDB;
+
+-- user_sessions
+-- Purpose: server-side login sessions for the API. The browser holds a
+--          random token in an HttpOnly cookie; only its SHA-256 hash is
+--          stored here, so a leaked table can't be replayed. Deleting a row
+--          logs that device out (logout, "log out everywhere", suspension).
+CREATE TABLE user_sessions (
+  session_id    CHAR(64)     NOT NULL,                  -- sha256(token), hex
+  user_id       INT UNSIGNED NOT NULL,
+  created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at    DATETIME     NOT NULL,
+  ip_address    VARCHAR(45)  NULL,                      -- fits IPv6
+  user_agent    VARCHAR(255) NULL,
+  PRIMARY KEY (session_id),
+  KEY idx_user_sessions_user (user_id),
+  KEY idx_user_sessions_expires (expires_at),
+  CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE,
+  CONSTRAINT ck_user_sessions_expiry CHECK (expires_at > created_at)
 ) ENGINE=InnoDB;
 
 
@@ -505,6 +525,34 @@ CREATE TABLE audit_log (
   KEY idx_audit_log_record (table_name, record_id),
   KEY idx_audit_log_changed_at (changed_at)
 ) ENGINE=InnoDB;
+
+-- festivals
+-- Purpose: reference calendar of big spending festivals, so reports can
+--          compare credit in the weeks before a festival with normal weeks
+--          (the "Eid spike" query). Lunar dates are approximate (moon sighting).
+CREATE TABLE festivals (
+  festival_id    SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  name           VARCHAR(60)  NOT NULL,
+  bangla_name    VARCHAR(60)  NULL,
+  festival_date  DATE         NOT NULL,
+  PRIMARY KEY (festival_id),
+  UNIQUE KEY uk_festivals_name_date (name, festival_date),
+  KEY idx_festivals_date (festival_date)
+) ENGINE=InnoDB;
+
+INSERT INTO festivals (name, bangla_name, festival_date) VALUES
+  ('Eid ul-Fitr',     'ঈদুল ফিতর',      '2025-03-31'),
+  ('Pohela Boishakh', 'পহেলা বৈশাখ',    '2025-04-14'),
+  ('Eid ul-Adha',     'ঈদুল আজহা',      '2025-06-07'),
+  ('Durga Puja',      'দুর্গাপূজা',       '2025-10-02'),
+  ('Eid ul-Fitr',     'ঈদুল ফিতর',      '2026-03-21'),
+  ('Pohela Boishakh', 'পহেলা বৈশাখ',    '2026-04-14'),
+  ('Eid ul-Adha',     'ঈদুল আজহা',      '2026-05-27'),
+  ('Durga Puja',      'দুর্গাপূজা',       '2026-10-21'),
+  ('Eid ul-Fitr',     'ঈদুল ফিতর',      '2027-03-10'),
+  ('Pohela Boishakh', 'পহেলা বৈশাখ',    '2027-04-14'),
+  ('Eid ul-Adha',     'ঈদুল আজহা',      '2027-05-17'),
+  ('Durga Puja',      'দুর্গাপূজা',       '2027-10-10');
 
 
 -- =====================================================================
