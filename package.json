@@ -21,7 +21,8 @@
     "format": "prettier --write .",
     "db:build": "node scripts/build-full.mjs",
     "db:reset": "node scripts/db-reset.mjs",
-    "db:check": "node scripts/db-check.mjs"
+    "db:check": "node scripts/db-check.mjs",
+    "test:api": "node scripts/api-smoke.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
