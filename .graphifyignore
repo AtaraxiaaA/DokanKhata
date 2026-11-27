@@ -1,0 +1,4 @@
+# generated / data files: index schema.sql, not these
+db/database/dokankhata_full.sql
+db/database/seed.sql
+apps/web/src/components/ui/
