@@ -5,3 +5,6 @@ export * from './dates';
 export * from './schemas/common';
 export * from './schemas/auth';
 export * from './schemas/ledger';
+export * from './schemas/shop';
+export * from './schemas/portal';
+export * from './schemas/admin';

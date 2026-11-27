@@ -23,3 +23,21 @@ export const moneySchema = z.coerce
   .number()
   .positive('Amount must be more than 0')
   .multipleOf(0.01, 'At most 2 decimal places');
+
+// 'YYYY-MM-DD'
+export const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date like 2026-12-05');
+
+// optional text field: '' from a form counts as not given
+export const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .optional()
+    .transform((v) => (v ? v : undefined));
+
+// list endpoints all take these
+export const pageQuery = {
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+};
