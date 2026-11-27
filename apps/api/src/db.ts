@@ -79,3 +79,19 @@ export async function callProc<T = number>(
   const [rows] = await conn.query<RowDataPacket[]>('SELECT @out_param AS v');
   return rows[0]?.v as T;
 }
+
+// withConn + a transaction around fn. use it when one request writes to several tables
+// with plain INSERT/UPDATEs. (don't use it around callProc, the procedures do their own)
+export async function withTx<T>(appUser: string, fn: (conn: Conn) => Promise<T>): Promise<T> {
+  return withConn(appUser, async (conn) => {
+    await conn.beginTransaction();
+    try {
+      const out = await fn(conn);
+      await conn.commit();
+      return out;
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    }
+  });
+}

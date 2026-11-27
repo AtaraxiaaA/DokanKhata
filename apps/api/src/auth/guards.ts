@@ -24,6 +24,8 @@ interface ShopAccessOptions {
   manager?: boolean;
   // owner, or staff with can_give_credit = 1
   canGiveCredit?: boolean;
+  // shop must be verified (no sales or payments while it's still pending)
+  active?: boolean;
 }
 
 // for /shops/:shopId/* routes. makes sure the user owns or works at that shop and
@@ -37,6 +39,12 @@ export const requireShopAccess = (opts: ShopAccessOptions = {}) =>
       throw forbidden('Only the shop owner or a manager can do this');
     if (opts.canGiveCredit && !membership.canGiveCredit)
       throw forbidden('You are not allowed to give credit at this shop');
+    if (opts.active && membership.shopStatus !== 'active')
+      throw forbidden(
+        membership.shopStatus === 'pending'
+          ? 'This shop is waiting for admin verification'
+          : 'This shop is not active',
+      );
     c.set('shop', membership);
     await next();
   });

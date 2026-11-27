@@ -42,6 +42,7 @@ const UNIQUE_MESSAGES: Record<string, string> = {
   uk_payments_trx_ref: 'This transaction ID has already been recorded',
   uk_shops_trade_licence: 'This trade licence is already registered',
   uk_disputes_one_open_per_sale: 'This sale already has an open dispute',
+  uk_shop_products_shop_product: 'This product is already in your price list',
 };
 
 interface MysqlError {
@@ -92,10 +93,3 @@ export function onError(err: Error, c: Context) {
   const { status, body } = toErrorResponse(err);
   return c.json(body, status);
 }
-
-// placeholder for endpoints nobody has built yet
-export const notImplemented = (owner: string) => (c: Context) =>
-  c.json<ApiErrorBody>(
-    { error: { code: 'NOT_IMPLEMENTED', message: `Not built yet — owner: ${owner}` } },
-    501,
-  );
