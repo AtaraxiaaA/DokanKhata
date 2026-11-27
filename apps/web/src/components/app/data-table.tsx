@@ -71,7 +71,7 @@ export function DataTable<T>({
                     )}
                     onClick={h.column.getToggleSortingHandler()}
                   >
-                    <span className="inline-flex items-center gap-1">
+                    <span className="flex items-center gap-1 [&>div]:flex-1">
                       {h.isPlaceholder
                         ? null
                         : flexRender(h.column.columnDef.header, h.getContext())}
