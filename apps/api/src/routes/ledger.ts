@@ -1,8 +1,13 @@
-// customer ledger & statement, mounted at /api/shops/:shopId/ledger
+// customer ledger, mounted at /api/shops/:shopId/ledger
 import { Hono } from 'hono';
-import { notImplemented } from '../errors';
 import type { AppEnv } from '../lib/env-types';
+import { accountInShop, paramId } from '../lib/ownership';
+import { getStatement } from '../lib/statement';
 
 export const ledgerRoutes = new Hono<AppEnv>()
-  // GET /:shopCustomerId - running statement: sales, payments, adjustments with SUM() OVER running balance (Q7)
-  .get('/:shopCustomerId', notImplemented('Member 2'));
+  // GET /:shopCustomerId - every sale, payment and adjustment with a running balance (Q7)
+  .get('/:shopCustomerId', async (c) => {
+    const id = paramId(c, 'shopCustomerId');
+    await accountInShop(id, c.get('shop').shopId);
+    return c.json(await getStatement(id));
+  });
