@@ -2,6 +2,7 @@
 import { Link, Outlet } from 'react-router';
 import { Logo } from '@/components/app/logo';
 import { ThemeToggle } from '@/components/app/theme-toggle';
+import { STATIC_PREVIEW } from '@/api/client';
 
 export function AuthLayout() {
   return (
@@ -32,6 +33,12 @@ export function AuthLayout() {
         </div>
         <div className="flex flex-1 items-center justify-center px-4 pb-16">
           <div className="w-full max-w-sm">
+            {STATIC_PREVIEW && (
+              <p className="mb-6 rounded-lg border border-dashed px-3 py-2.5 text-sm text-muted-foreground">
+                This is the static preview on GitHub Pages. Logging in needs the DokanKhata server,
+                so run the project on your own computer to use the app.
+              </p>
+            )}
             <Outlet />
           </div>
         </div>

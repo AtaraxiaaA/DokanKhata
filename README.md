@@ -13,6 +13,8 @@ The business rules live **inside the database** (constraints, triggers, stored p
 ![TypeScript](https://img.shields.io/badge/TypeScript-end--to--end-3178C6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)
 
+**Preview:** <https://ataraxiaaa.github.io/DokanKhata/> shows the frontend only (landing page). Logging in needs the API and database, so run it locally for the real app.
+
 ---
 
 ## Table of contents

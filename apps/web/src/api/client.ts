@@ -5,7 +5,16 @@
 import type { AppType } from '@dokankhata/api';
 import { hc, type ClientResponse } from 'hono/client';
 
-export const api = hc<AppType>('/', { init: { credentials: 'include' } }).api;
+// the github pages build is just the frontend, there's no API behind it.
+// in that build every call fails straight away with a clear message instead of hitting github's 404
+export const STATIC_PREVIEW = import.meta.env.VITE_STATIC_PREVIEW === 'true';
+const STATIC_MESSAGE =
+  'This is the static preview on GitHub Pages, so there is no server to log in to. Run DokanKhata on your own computer to use it (see the README).';
+
+export const api = hc<AppType>('/', {
+  init: { credentials: 'include' },
+  ...(STATIC_PREVIEW ? { fetch: () => Promise.reject(new Error('static preview')) } : {}),
+}).api;
 
 export class ApiError extends Error {
   constructor(
@@ -30,6 +39,7 @@ export async function call<R extends AnyRes>(request: Promise<R>): Promise<OkJso
   try {
     res = await request;
   } catch {
+    if (STATIC_PREVIEW) throw new ApiError(0, 'STATIC_PREVIEW', STATIC_MESSAGE);
     throw new ApiError(0, 'NETWORK', 'Cannot reach the server. Is `npm run dev` running?');
   }
   if (res.ok) return (await res.json()) as OkJson<R>;
