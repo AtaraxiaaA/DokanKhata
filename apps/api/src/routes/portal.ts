@@ -116,10 +116,9 @@ export const portalRoutes = new Hono<AppEnv>()
           ORDER BY settled DESC`,
         [customerId],
       ),
-      // Q17 for one customer: buying for 4+ months, never paid late, nothing overdue now.
-      // (the plan said 6 months but the sample data only covers about 5, so 4 for now)
+      // Q17 for one customer: buying for 6+ months, never paid late, nothing overdue now
       queryOne<{ perfect: number; firstSale: string | null }>(
-        `SELECT (MIN(sb.sold_at) <= NOW() - INTERVAL 4 MONTH
+        `SELECT (MIN(sb.sold_at) <= NOW() - INTERVAL 6 MONTH
                  AND NOT EXISTS (SELECT 1 FROM v_sale_balance x
                                   WHERE x.customer_id = ?
                                     AND (x.days_overdue > 0
