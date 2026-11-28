@@ -60,9 +60,10 @@ apps/
 packages/
 └── shared/                   # enums, zod schemas, types shared by api + web
 db/
+├── generator/                # make_seed.py writes seed.sql, check_seed.py checks it
 └── database/
     ├── schema.sql            # tables, views, procedures, triggers, events
-    ├── seed.sql              # ~5 months of realistic sample data
+    ├── seed.sql              # GENERATED: ~9 months of sample data (npm run db:seed)
     ├── dokankhata_full.sql   # GENERATED: schema.sql + seed.sql (npm run db:build)
     ├── queries.sql           # the 17 critical queries
     ├── test_schema.sql       # smoke test for every rule and procedure
@@ -96,7 +97,8 @@ npm run dev               # API → http://localhost:3001  ·  Web → http://lo
 | Script | What it does |
 |---|---|
 | `npm run dev` | API + web with hot reload |
-| `npm run db:build` | Rebuilds `dokankhata_full.sql` after editing `schema.sql` or `seed.sql` |
+| `npm run db:seed` | Regenerates `seed.sql` with `db/generator/make_seed.py`, checks it with `check_seed.py`, then rebuilds the full file (needs Python 3 and XAMPP's PHP) |
+| `npm run db:build` | Rebuilds `dokankhata_full.sql` after editing `schema.sql` |
 | `npm run db:reset` | Drops and re-imports the database (finds XAMPP's `mysql` on macOS, Windows and Linux) |
 | `npm run db:check` | Health check of the imported database |
 | `npm run test:api` | Calls every API endpoint as every role (needs `npm run dev`; writes test data, so `db:reset` after) |
@@ -153,11 +155,13 @@ Every seeded user has the password **`dokan123`**. The hashes are real PHP `pass
 | Admin | Tanvir Ahmed | `01927948204` | `tanvir.ahmed@example.com` |
 | Owner | Rahim Uddin | `01534490777` | Rahim General Store |
 | Manager | Jamal Hossain | `01568634607` | Rahim General Store |
-| Customer | Mohammad Jahangir Gazi | `01302642668` | Customer portal |
+| Customer | Fahim Sikder | `01394132777` | Customer portal (accounts at 2 shops) |
 
 ### What the sample data contains
 
-Roughly five months of activity across **9 shops in 7 areas**: 107 customers holding 133 shop accounts, 1,588 credit sales, 1,266 payments (cash, bKash, Nagad, Rocket), plus returns, discounts, disputes, promises, write-offs and SMS reminders.
+About nine months of activity across **9 shops in 7 areas**: 96 customers holding 133 shop accounts, 3,314 credit sales, 2,090 payments (cash, bKash, Nagad, Rocket), plus returns, discounts, disputes, promises, write-offs and SMS reminders.
+
+It also has the cases the reports are meant to catch: customers owing 3–4 shops at once, debtors who vanished months ago, accounts whose limit was cut below what they owe, a cashier with far too many disputed sales, perfect payers, and a credit rush before Eid and Durga Puja. The data comes from `db/generator/make_seed.py`; change the generator and run `npm run db:seed`, never edit `seed.sql` by hand.
 
 Every date is stored **relative to the day you import** (for example `@today - INTERVAL 12 DAY`), so "overdue", "due tomorrow" and "promised for Friday" always line up with the real calendar.
 
@@ -402,7 +406,7 @@ FROM   v_customer_balance WHERE shop_customer_id = 1;
 SELECT e.shops_owed, e.total_outstanding, t.score
 FROM   v_customer_exposure e
 JOIN   customer_trust_scores t USING (customer_id)
-WHERE  e.phone = '01302642668';
+WHERE  e.phone = '01394132777';
 ```
 
 **Aging report for a shop:**

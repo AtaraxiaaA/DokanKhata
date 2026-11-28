@@ -342,7 +342,7 @@ await check('cashier at another shop', cashier.get(`${S}/customers`), 403);
 await check('cashier staff report', cashier.get('/shops/2/reports/staff'), 403);
 
 // ---------------------------------------------------------------- customer portal
-const cust = await login('01302642668');
+const cust = await login('01394132777'); // Fahim Sikder, the demo customer
 const bal = await check('portal balances', cust.get('/portal/balances'), 200, (d) =>
   d.accounts.length ? '' : 'no accounts',
 );

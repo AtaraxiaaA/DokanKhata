@@ -40,8 +40,9 @@ git push -u origin feat/m3-add-customer   # then open a PR to main
 
 The schema is shared by everyone, so DB changes need extra care.
 
-1. Edit `db/database/schema.sql` (or `seed.sql`). Follow the naming conventions at the top of `schema.sql`.
-2. Run `npm run db:build` to regenerate `dokankhata_full.sql`, then `npm run db:reset`.
+1. Edit `db/database/schema.sql`. Follow the naming conventions at the top of `schema.sql`.
+   For sample data, change `db/generator/make_seed.py` instead of `seed.sql` (it's generated).
+2. Run `npm run db:build` (schema only) or `npm run db:seed` (data), then `npm run db:reset`.
 3. If you changed an ENUM, update `packages/shared/src/enums.ts` in the **same PR**.
 4. Use a `db/...` branch and tell the team in the PR title: `db: add X`.
 
