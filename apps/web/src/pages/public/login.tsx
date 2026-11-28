@@ -15,7 +15,7 @@ import { homePathFor, useAuth } from '@/auth/auth';
 const DEMO = [
   { role: 'Owner', who: 'Rahim General Store', phone: '01534490777' },
   { role: 'Manager', who: 'Rahim General Store', phone: '01568634607' },
-  { role: 'Customer', who: 'Portal', phone: '01302642668' },
+  { role: 'Customer', who: 'Portal', phone: '01394132777' },
   { role: 'Admin', who: 'Platform', phone: '01927948204' },
 ];
 

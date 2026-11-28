@@ -30,18 +30,20 @@
 -- =====================================================================
 
 USE dokankhata;
-SET @shop_id = 1;          -- Rahim General Store
-SET @customer_id = 2;      -- Mohammad Jahangir Gazi (the demo customer login)
-SET @shop_customer_id = 19; -- Ruma Begum at Rahim General Store (blocked, 68 days late)
-SET @payment_id = 1;
+SET @shop_id = 1;           -- Rahim General Store
+SET @customer_id = 30;      -- Fahim Sikder (the demo customer login)
+SET @shop_customer_id = 9;  -- Zahid Islam at Rahim General Store (stopped coming, 136 days late)
+SET @payment_id = 90;       -- a bKash/cash payment that cleared 3 sales
 
 
 -- ---------------------------------------------------------------------
 -- Q1. Aging report: what each customer owes at a shop, split by how late it is.
 -- Conditional aggregation (SUM(CASE ...)) over v_sale_balance, which already
 -- works out each sale's balance and days overdue. HAVING drops settled accounts.
--- EXPECT (shop 1): 27 customers, Ruma Begum first with Tk 2,103.50 in 31-60
---        and Tk 212.25 in 61-90. The column totals match v_aging for shop 1.
+-- EXPECT (shop 1): 29 customers owe money. The top three are all 90+ days
+--        late (they stopped coming in July): Zahid Islam Tk 2,093.25,
+--        Kulsum Jahan Tk 1,838.50, Nazma Sultana Tk 1,321.75.
+--        The column totals match v_aging for shop 1.
 -- ---------------------------------------------------------------------
 SELECT sb.shop_customer_id, c.full_name, c.phone,
        SUM(CASE WHEN sb.days_overdue = 0              THEN sb.balance ELSE 0 END) AS not_yet_due,
@@ -66,8 +68,8 @@ SELECT * FROM v_aging WHERE shop_id = @shop_id;
 -- Q2. Over-limit customers: balance is higher than their credit limit.
 -- Trigger T1 stops a new sale from crossing the limit, so this only happens
 -- when the owner lowers someone's limit after they already owe more.
--- EXPECT: 0 rows in the seed. To see it work, lower a limit first:
---         UPDATE shop_customers SET credit_limit = 1000 WHERE shop_customer_id = 19;
+-- EXPECT (shop 1): Saiful Ahmed (owes Tk 743, limit cut to Tk 300) and
+--        Abdul Kamrul Howlader. Remove the shop filter to see all 4.
 -- ---------------------------------------------------------------------
 SELECT b.shop_customer_id, b.full_name, b.phone, b.balance, b.credit_limit,
        b.balance - b.credit_limit AS over_by, b.status
@@ -79,8 +81,8 @@ ORDER BY over_by DESC;
 -- ---------------------------------------------------------------------
 -- Q3. Cross-shop exposure: people who owe money at 3 or more shops at once.
 -- GROUP BY the customer across every shop, HAVING COUNT(DISTINCT shop).
--- EXPECT: 1 row, Mohammad Aminul Mondal owing 3 shops (Tk 1,849.30).
---         With >= 2 there are more.
+-- EXPECT: 10 customers. The top three owe 4 Mirpur shops each:
+--        Nayeem Chowdhury, Mohammad Aminul Mondal, Pradip Roy.
 -- ---------------------------------------------------------------------
 SELECT c.customer_id, c.full_name, c.phone,
        COUNT(DISTINCT sb.shop_id)                                    AS shops_owed,
@@ -102,7 +104,8 @@ ORDER BY shops_owed DESC, total_outstanding DESC;
 -- ---------------------------------------------------------------------
 -- Q4. Vanished debtors: still owe money, but no purchase and no payment
 -- in the last 60 days. Two anti-joins with NOT EXISTS.
--- EXPECT: none at shop 1. Shops 2, 4 and 8 have one each (SET @shop_id = 2).
+-- EXPECT (shop 1): Zahid Islam, Kulsum Jahan, Nazma Sultana and Liton Bhuiyan.
+--        Remove the shop filter and there are 25 across all shops.
 -- ---------------------------------------------------------------------
 SELECT b.shop_customer_id, b.full_name, b.phone, b.balance, b.last_purchase_at,
        (SELECT MAX(p.paid_at) FROM payments p WHERE p.shop_customer_id = b.shop_customer_id) AS last_payment_at
@@ -119,8 +122,8 @@ ORDER BY b.balance DESC;
 -- Q5. Trust score inputs: per shop, how many sales were settled, how many on
 -- time, and the average days late (last 12 months). A sale is on time when its
 -- last payment came on or before the due date.
--- EXPECT (customer 2): 3 shops, 28 settled sales, all on time, 0 days late.
---        Matches customer_trust_scores (score 95).
+-- EXPECT (customer 30, Fahim Sikder): 2 shops, 114 settled sales, every
+--        one on time, 0 days late. Matches customer_trust_scores (score 95).
 -- ---------------------------------------------------------------------
 SELECT sb.shop_id, s.name AS shop_name,
        COUNT(*)                                                                         AS settled,
@@ -138,8 +141,8 @@ ORDER BY settled DESC;
 -- ---------------------------------------------------------------------
 -- Q6. FIFO trace: which sales payment X cleared, and how much went to each.
 -- payment_allocations is the M:N table between payments and credit_sales.
--- EXPECT (payment 1): the oldest unpaid sale(s) of that account, oldest first,
---        and the amounts add up to the payment amount.
+-- EXPECT (payment 90): sales 59 and 88 paid in full, then Tk 558 of sale 121,
+--        oldest first. The amounts add up to the payment.
 -- ---------------------------------------------------------------------
 SELECT pa.sale_id, cs.sold_at, cs.due_date, cs.total_amount, pa.amount AS paid_from_this_payment, cs.status
 FROM payment_allocations pa
@@ -152,8 +155,8 @@ ORDER BY cs.sold_at, cs.sale_id;
 -- Q7. Running statement: one account's ledger with a running balance.
 -- UNION ALL of sales (+), payments (-) and adjustments (-), then
 -- SUM() OVER (ORDER BY ...) for the balance after each line.
--- EXPECT (account 19): the last running_balance is 2315.75, the same as
---        her balance in v_customer_balance.
+-- EXPECT (account 9, Zahid Islam): 21 lines; the last running_balance is
+--        2093.25, the same as his balance in v_customer_balance.
 -- ---------------------------------------------------------------------
 SELECT t.happened_at, t.kind, t.ref_id, t.description, t.debit, t.credit,
        SUM(t.debit - t.credit) OVER (ORDER BY t.happened_at, t.sort_key, t.ref_id) AS running_balance
@@ -184,8 +187,8 @@ ORDER BY t.happened_at, t.sort_key, t.ref_id;
 -- Q8. Monthly trend: credit given vs collected each month, with the % change
 -- from the month before. The recursive CTE makes one row per month (so a month
 -- with no sales still shows 0), then LAG() looks at the previous row.
--- EXPECT (shop 1, 6 months): Jun is 0 (the seed starts in July), then credit
---        grows from Tk 8,579.50 in Jul; collected follows a few weeks behind.
+-- EXPECT (shop 1): 6 months from June. Tk 39,503 of credit in June, +30.3%
+--        in July, -17.5% in August; collections follow a few weeks behind.
 -- ---------------------------------------------------------------------
 WITH RECURSIVE months AS (
   SELECT CAST(DATE_FORMAT(CURDATE() - INTERVAL 5 MONTH, '%Y-%m-01') AS DATE) AS m
@@ -224,29 +227,31 @@ ORDER BY month;
 
 -- ---------------------------------------------------------------------
 -- Q9. Festival spike: credit in the 14 days before each festival, compared
--- with a normal 14 days at the same shop (its average credit per day x 14).
--- Only festivals inside the period the shop has sales for are counted.
--- EXPECT (shop 1): Durga Puja 2026 only (Eid falls outside the seed's 5 months),
---        about 1.35x normal. The seed has no planted spike, so it's mild.
+-- with the 4 weeks before that (shown per 14 days). Comparing with the weeks
+-- just before, not the whole history, means a shop that's still growing
+-- doesn't make every early festival look like a dip.
+-- Conditional aggregation over one 6-week window per festival.
+-- EXPECT (shop 1): Eid ul-Adha 2.24x normal, Durga Puja 1.53x. Every grocery
+--        shop shows Eid ul-Adha at about 2-3x. (Eid ul-Fitr and Pohela Boishakh
+--        are too close to the start of the data to have 4 weeks before them.)
 -- ---------------------------------------------------------------------
-SELECT f.name, f.bangla_name, f.festival_date,
-       COALESCE(SUM(cs.total_amount), 0) AS credit_before,
-       COUNT(cs.sale_id)                 AS sales_before,
-       ROUND(base.per_day * 14, 2)       AS normal_14_days,
-       ROUND(COALESCE(SUM(cs.total_amount), 0) / NULLIF(base.per_day * 14, 0), 2) AS times_normal
+SELECT f.festival_id, f.name, f.bangla_name, f.festival_date,
+       SUM(CASE WHEN cs.sold_at >= f.festival_date - INTERVAL 14 DAY THEN cs.total_amount ELSE 0 END) AS credit_before,
+       SUM(cs.sold_at >= f.festival_date - INTERVAL 14 DAY)                                       AS sales_before,
+       ROUND(SUM(CASE WHEN cs.sold_at < f.festival_date - INTERVAL 14 DAY THEN cs.total_amount ELSE 0 END) / 2, 2)
+                                                                                                  AS normal_14_days,
+       ROUND(SUM(CASE WHEN cs.sold_at >= f.festival_date - INTERVAL 14 DAY THEN cs.total_amount ELSE 0 END)
+             / NULLIF(SUM(CASE WHEN cs.sold_at < f.festival_date - INTERVAL 14 DAY THEN cs.total_amount ELSE 0 END) / 2, 0), 2)
+                                                                                                  AS times_normal
 FROM festivals f
-CROSS JOIN (
-  SELECT SUM(cs.total_amount) / (DATEDIFF(MAX(cs.sold_at), MIN(cs.sold_at)) + 1) AS per_day,
-         MIN(cs.sold_at) AS first_sale, MAX(cs.sold_at) AS last_sale
-    FROM credit_sales cs
-    JOIN shop_customers sc ON sc.shop_customer_id = cs.shop_customer_id
-   WHERE sc.shop_id = @shop_id
-) AS base
-LEFT JOIN (credit_sales cs JOIN shop_customers sc ON sc.shop_customer_id = cs.shop_customer_id AND sc.shop_id = @shop_id)
-       ON cs.sold_at >= f.festival_date - INTERVAL 14 DAY AND cs.sold_at < f.festival_date
-WHERE f.festival_date - INTERVAL 14 DAY >= DATE(base.first_sale)
-  AND f.festival_date <= DATE(base.last_sale) + INTERVAL 1 DAY
-GROUP BY f.festival_id, f.name, f.bangla_name, f.festival_date, base.per_day
+JOIN credit_sales cs   ON cs.sold_at >= f.festival_date - INTERVAL 42 DAY AND cs.sold_at < f.festival_date
+JOIN shop_customers sc ON sc.shop_customer_id = cs.shop_customer_id AND sc.shop_id = @shop_id
+WHERE f.festival_date <= CURDATE()
+  AND f.festival_date - INTERVAL 42 DAY >= (SELECT DATE(MIN(cs2.sold_at))
+                                              FROM credit_sales cs2
+                                              JOIN shop_customers sc2 ON sc2.shop_customer_id = cs2.shop_customer_id
+                                             WHERE sc2.shop_id = @shop_id)
+GROUP BY f.festival_id, f.name, f.bangla_name, f.festival_date
 ORDER BY f.festival_date;
 
 
@@ -254,8 +259,8 @@ ORDER BY f.festival_date;
 -- Q10. Top 10 debtors at each shop. RANK() OVER (PARTITION BY shop) ranks
 -- everyone inside their own shop; the outer query keeps the top 10.
 -- Remove the "r.shop_id = @shop_id AND" to see every shop's top 10 at once.
--- EXPECT (shop 1): 1 Ruma Begum Tk 2,315.75, 2 Zahid Islam Tk 1,933,
---        3 Puja Rani Roy Tk 1,383 ...
+-- EXPECT (shop 1): 1 Farzana Islam Tk 3,336, 2 Shirin Akter Tk 3,126.70,
+--        3 Mohammad Nasir Howlader Tk 2,207.05 ...
 -- ---------------------------------------------------------------------
 SELECT r.shop_name, r.rnk, r.full_name, r.phone, r.balance, r.credit_limit, r.max_days_overdue, r.trust_score
 FROM (
@@ -272,7 +277,7 @@ ORDER BY r.shop_id, r.rnk;
 
 -- ---------------------------------------------------------------------
 -- Q11. Repeat promise breakers: 2 or more broken promises at the shop.
--- EXPECT (shop 1): Mohammad Aminul Mondal and Rubel Hossain, 2 each.
+-- EXPECT (shop 1): 15 customers; Jahangir Uddin has broken 7 promises.
 -- ---------------------------------------------------------------------
 SELECT sc.shop_customer_id, c.full_name, c.phone,
        COUNT(*) AS broken_count, SUM(pr.promised_amount) AS broken_amount,
@@ -291,7 +296,8 @@ ORDER BY broken_count DESC, broken_amount DESC;
 -- Q12. Guarantor risk: guarantors whose guaranteed accounts are overdue.
 -- Self join on customers: g is the guarantor, c is the person they vouched
 -- for, linked through customer_guarantors.
--- EXPECT (shop 1): Mohammad Mizan Haque, guaranteeing Rubel Hossain (overdue).
+-- EXPECT (shop 1): 3 guarantors. Mohammad Rafiq Molla vouched for Kulsum Jahan
+--        and Zahid Islam, both 90+ days late (Tk 3,931.75 between them).
 -- ---------------------------------------------------------------------
 SELECT g.customer_id AS guarantor_id, g.full_name AS guarantor_name, g.phone AS guarantor_phone,
        COUNT(*)                                                     AS guaranteed_accounts,
@@ -315,8 +321,8 @@ ORDER BY overdue_balance DESC;
 -- their sales got disputed, and sales to accounts that are blocked now.
 -- Red flag = 2+ disputed sales AND a dispute rate over double the shop average
 -- (AVG() OVER () gives the average across the rows without grouping again).
--- EXPECT (shop 1): Jamal Hossain 122 sales / 3 disputed (2.5%), Sumon Mia,
---        Rahim Uddin. Nobody is over 2x the average, so no flags in the seed.
+-- EXPECT (shop 1): nobody flagged. Try SET @shop_id = 3: Sabbir Ahmed has
+--        13 of his 60 sales disputed (21.7%, shop average 7.9%), so red_flag = 1.
 -- ---------------------------------------------------------------------
 SELECT x.*,
        ROUND(AVG(x.dispute_pct) OVER (), 1) AS shop_avg_dispute_pct,
@@ -349,8 +355,8 @@ ORDER BY red_flag DESC, x.credit_given DESC;
 -- Q14. Area risk: how much of the money owed in each area is overdue.
 -- Area -> thana -> district -> division join, then aggregate.
 -- For thana or district level, group by fewer columns (the API has all three).
--- EXPECT: Agrabad (Chattogram) worst at about 47% overdue, then
---         Mohammadpur Town Hall about 31%.
+-- EXPECT: Agrabad (Chattogram) worst at 70.7% late, then Rampura Bazar 66.5%
+--         and Mirpur 1 61.6%.
 -- ---------------------------------------------------------------------
 SELECT a.division, a.district, a.thana, a.name AS area,
        COUNT(DISTINCT s.shop_id)                                              AS shops,
@@ -369,8 +375,8 @@ ORDER BY overdue_pct DESC, overdue DESC;
 -- ---------------------------------------------------------------------
 -- Q15. What people buy on baki: by product, then by category with its share.
 -- items -> shop_products -> products -> categories.
--- EXPECT (shop 1): Coarse Rice first (Tk 19,082), Rice & Grains the biggest
---        category at about 24%, Edible Oil next.
+-- EXPECT (shop 1): Soybean Oil 5 L first (Tk 40,082), then Miniket and
+--        Nazirshail rice. Rice & Grains is 26.3% of all baki, Edible Oil 25.1%.
 -- ---------------------------------------------------------------------
 SELECT p.name, p.bangla_name, p.brand, p.unit, cat.name AS category,
        SUM(i.qty) AS qty, SUM(i.line_total) AS amount,
@@ -402,7 +408,7 @@ ORDER BY amount DESC;
 -- ---------------------------------------------------------------------
 -- Q16. Days sales outstanding: on average, how many days after a sale the
 -- shop gets fully paid (paid sales from the last 90 days).
--- EXPECT (shop 1): about 9.5 days over 234 paid sales.
+-- EXPECT (shop 1): about 21 days, over 183 paid sales.
 -- ---------------------------------------------------------------------
 SELECT ROUND(AVG(DATEDIFF(sb.last_paid_at, sb.sold_at)), 1) AS days_sales_outstanding,
        COUNT(*) AS paid_sales
@@ -412,11 +418,10 @@ WHERE sb.shop_id = @shop_id AND sb.status = 'paid' AND sb.last_paid_at IS NOT NU
 
 
 -- ---------------------------------------------------------------------
--- Q17. Perfect payers: been buying for 4+ months, never paid a sale late,
+-- Q17. Perfect payers: been buying for 6+ months, never paid a sale late,
 -- and nothing overdue right now. EXISTS for the history, NOT EXISTS for
--- any late sale. (The plan said 6 months, but the seed only goes back
--- about 5, so 4 for now. Change the INTERVAL when there's more data.)
--- EXPECT: 18 customers, including customer 2 (the demo login).
+-- any late sale.
+-- EXPECT: 27 customers, including customer 30 (Fahim Sikder, the demo login).
 -- ---------------------------------------------------------------------
 SELECT c.customer_id, c.full_name, c.phone,
        (SELECT MIN(sb.sold_at) FROM v_sale_balance sb WHERE sb.customer_id = c.customer_id) AS first_sale,
@@ -424,7 +429,7 @@ SELECT c.customer_id, c.full_name, c.phone,
 FROM customers c
 LEFT JOIN customer_trust_scores t ON t.customer_id = c.customer_id
 WHERE EXISTS (SELECT 1 FROM v_sale_balance sb
-               WHERE sb.customer_id = c.customer_id AND sb.sold_at <= NOW() - INTERVAL 4 MONTH)
+               WHERE sb.customer_id = c.customer_id AND sb.sold_at <= NOW() - INTERVAL 6 MONTH)
   AND NOT EXISTS (SELECT 1 FROM v_sale_balance sb
                    WHERE sb.customer_id = c.customer_id
                      AND (sb.days_overdue > 0

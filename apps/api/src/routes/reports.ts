@@ -115,8 +115,8 @@ export const reportRoutes = new Hono<AppEnv>()
     },
   )
 
-  // GET /festival (Q9) - credit in the 14 days before each festival compared with a normal
-  // 14 days for this shop. only festivals inside the period we have sales for are shown
+  // GET /festival (Q9) - credit in the 14 days before each festival compared with the 4 weeks
+  // before that (per 14 days), so a shop that's still growing doesn't make early festivals look small
   .get('/festival', async (c) => {
     const rows = await query<{
       festivalId: number;
@@ -129,23 +129,22 @@ export const reportRoutes = new Hono<AppEnv>()
       timesNormal: number | null;
     }>(
       `SELECT f.festival_id, f.name, f.bangla_name, f.festival_date,
-              COALESCE(SUM(cs.total_amount), 0) AS credit_before,
-              COUNT(cs.sale_id)                 AS sales_before,
-              ROUND(base.per_day * 14, 2)       AS normal_14_days,
-              ROUND(COALESCE(SUM(cs.total_amount), 0) / NULLIF(base.per_day * 14, 0), 2) AS times_normal
-         FROM festivals f
-         CROSS JOIN (
-           SELECT SUM(cs.total_amount) / (DATEDIFF(MAX(cs.sold_at), MIN(cs.sold_at)) + 1) AS per_day,
-                  MIN(cs.sold_at) AS first_sale, MAX(cs.sold_at) AS last_sale
-             FROM credit_sales cs
-             JOIN shop_customers sc ON sc.shop_customer_id = cs.shop_customer_id
-            WHERE sc.shop_id = ?
-         ) AS base
-         LEFT JOIN (credit_sales cs JOIN shop_customers sc ON sc.shop_customer_id = cs.shop_customer_id AND sc.shop_id = ?)
-                ON cs.sold_at >= f.festival_date - INTERVAL 14 DAY AND cs.sold_at < f.festival_date
-        WHERE f.festival_date - INTERVAL 14 DAY >= DATE(base.first_sale)
-          AND f.festival_date <= DATE(base.last_sale) + INTERVAL 1 DAY
-        GROUP BY f.festival_id, f.name, f.bangla_name, f.festival_date, base.per_day
+               SUM(CASE WHEN cs.sold_at >= f.festival_date - INTERVAL 14 DAY THEN cs.total_amount ELSE 0 END) AS credit_before,
+               SUM(cs.sold_at >= f.festival_date - INTERVAL 14 DAY)                                       AS sales_before,
+               ROUND(SUM(CASE WHEN cs.sold_at < f.festival_date - INTERVAL 14 DAY THEN cs.total_amount ELSE 0 END) / 2, 2)
+                                                                                                          AS normal_14_days,
+               ROUND(SUM(CASE WHEN cs.sold_at >= f.festival_date - INTERVAL 14 DAY THEN cs.total_amount ELSE 0 END)
+                     / NULLIF(SUM(CASE WHEN cs.sold_at < f.festival_date - INTERVAL 14 DAY THEN cs.total_amount ELSE 0 END) / 2, 0), 2)
+                                                                                                          AS times_normal
+        FROM festivals f
+        JOIN credit_sales cs   ON cs.sold_at >= f.festival_date - INTERVAL 42 DAY AND cs.sold_at < f.festival_date
+        JOIN shop_customers sc ON sc.shop_customer_id = cs.shop_customer_id AND sc.shop_id = ?
+        WHERE f.festival_date <= CURDATE()
+          AND f.festival_date - INTERVAL 42 DAY >= (SELECT DATE(MIN(cs2.sold_at))
+                                                      FROM credit_sales cs2
+                                                      JOIN shop_customers sc2 ON sc2.shop_customer_id = cs2.shop_customer_id
+                                                     WHERE sc2.shop_id = ?)
+        GROUP BY f.festival_id, f.name, f.bangla_name, f.festival_date
         ORDER BY f.festival_date`,
       [c.get('shop').shopId, c.get('shop').shopId],
     );

@@ -20,6 +20,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "db:build": "node scripts/build-full.mjs",
+    "db:seed": "node scripts/db-seed.mjs",
     "db:reset": "node scripts/db-reset.mjs",
     "db:check": "node scripts/db-check.mjs",
     "test:api": "node scripts/api-smoke.mjs"
