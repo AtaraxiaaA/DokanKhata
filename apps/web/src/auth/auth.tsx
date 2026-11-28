@@ -21,7 +21,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         return await call(api.auth.me.$get());
       } catch (e) {
-        if (e instanceof ApiError && e.status === 401) return null;
+        // 401 = not logged in. on the github pages preview there's no server at all, so also nobody
+        if (e instanceof ApiError && (e.status === 401 || e.code === 'STATIC_PREVIEW')) return null;
         throw e;
       }
     },
@@ -39,8 +40,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login: (input) => loginMut.mutateAsync(input),
     logout: async () => {
       await call(api.auth.logout.$post()).catch(() => {});
-      qc.clear();
+      // set "me" to null first so the guards redirect straight away, then drop everything
+      // else that was cached for this user. (qc.clear() used to remove "me" while the app
+      // was still subscribed to it, so the page kept showing the old user)
       qc.setQueryData(['me'], null);
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
     },
   };
 
